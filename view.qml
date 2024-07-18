@@ -19,6 +19,9 @@ ApplicationWindow {
     Material.theme: Material.Dark
     Material.accent: Material.Red
     title: "SynthMoth"
+    property string colorNick: "#FFFFFF"
+    property string colorMsg: "#FFFFFF"
+    property string colEnd: "</font>"
 
     Bridge {
         id: bridge
@@ -61,11 +64,12 @@ ApplicationWindow {
                 Text {
                     id: leftlabel
                     horizontalAlignment: Text.AlignLeft
-                    color: "white"
                     font.pointSize: 16
                     wrapMode: Text.WordWrap
                     textFormat: Text.StyledText
                     text: ""
+                    font.family: "Papyrus"
+                    font.italic: true
                     width: 400
                     Material.accent: Material.Green
                 }
@@ -148,7 +152,9 @@ ApplicationWindow {
                     id: sred
                     value: 0.5
                     onValueChanged: {
-                        leftlabel.color = bridge.getTextColor(sredlabel.text, value, leftlabel.color)
+                        var colors = (bridge.getTextColor(sredlabel.text, value, colorMsg)).split("|")
+                        colorMsg = colors[0]
+                        colorNick = colors[1]
                     }
                 }
             }
@@ -168,7 +174,9 @@ ApplicationWindow {
                     id: sgreen
                     value: 0.5
                     onValueChanged: {
-                        leftlabel.color = bridge.getTextColor(sgreenlabel.text, value, leftlabel.color)
+                        var colors = bridge.getTextColor(sgreenlabel.text, value, colorMsg).split("|")
+                        colorMsg = colors[0]
+                        colorNick = colors[1]
                     }
                 }
             }
@@ -188,7 +196,9 @@ ApplicationWindow {
                     id: sblue
                     value: 0.5
                     onValueChanged: {
-                        leftlabel.color = bridge.getTextColor(sbluelabel.text, value, leftlabel.color)
+                        var colors = bridge.getTextColor(sbluelabel.text, value, colorMsg).split("|")
+                        colorMsg = colors[0]
+                        colorNick = colors[1]
                     }
                 }
             }
@@ -212,10 +222,17 @@ ApplicationWindow {
     Connections {
         target: chat
 
-        function onNewChatMessage(msg) {
+        function onNewChatMessage(msgF) {
+            var tmpArr = msgF.split(":")
+            var user = "<font color=\"" + colorNick + "\"><b>" + tmpArr[0] + "</b>" + colEnd
+            var msg = "<font color=\"" + colorMsg +"\">"
+            for (var i = 1; i < tmpArr.length; i++){
+                msg = msg + ":" + tmpArr[i]
+            }
+            msg = msg + colEnd
             flick.opacity = 1
             opacityAnimation.stop()
-            leftlabel.text = leftlabel.text + msg + "<br>"
+            leftlabel.text = leftlabel.text + user + msg + "<br>"
             timerchat.restart()
         }
     }
