@@ -68,7 +68,7 @@ class chatBotTwitch:
         global chat
         msgText = msg.text
         msgText = strip_tags(msgText)
-        chat.newChatMessage.emit(f'<b>{msg.user.name}</b>: {msgText}')
+        chat.newChatMessage.emit(f'{msg.user.name}: {msgText}')
         print(f'in {msg.room.name}, {msg.user.name} said: {msg.text}')
 
 
