@@ -68,8 +68,8 @@ class chatBotTwitch:
         global chat
         msgText = msg.text
         msgText = strip_tags(msgText)
-        chat.newChatMessage.emit(f'{msg.user.name}: {msgText}')
-        print(f'in {msg.room.name}, {msg.user.name} said: {msg.text}')
+        chat.newChatMessage.emit(f'<font color="{msg.user.color}"><b> {msg.user.name}</b></font>: {msgText}')
+        print(f'in {msg.room.name}, {msg.user.name} color: {msg.user.color} said: {msg.text}')
 
 
     # this will be called whenever someone subscribes to a channel
@@ -79,7 +79,7 @@ class chatBotTwitch:
               f'  Message: {sub.sub_message}')
 
     # this will be called whenever someone raids your channel
-    async def on_raid(d: dict):
+    async def on_raid(self, d: dict):
         await self.chat.twitch.send_a_shoutout(d["tags"]["room-id"], d["tags"]["user-id"], d["tags"]["room-id"])
 
     # this will be called whenever the !reply command is issued
@@ -124,7 +124,7 @@ class chatBotTwitch:
         await cmd.reply("https://discord.gg/RnpYD7vgP2")
 
     async def uptime_command(self, cmd: ChatCommand):
-        await cmd.reply(str(datetime.datetime.now() - START_TIME))
+        await cmd.reply(str(datetime.datetime.now() - self.START_TIME))
 
     # this is where we set up the bot and start it
     async def run_bot(self):
@@ -204,4 +204,4 @@ def main_bot_thread():
 
 # lets run our setup
 if __name__ == "__main__":
-    asyncio.run(run_bot())
+    asyncio.run(run())

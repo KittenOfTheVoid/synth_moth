@@ -2,13 +2,11 @@ import asyncio
 import sys
 from pathlib import Path
 
-from AsyncioPySide6 import AsyncioPySide6
 from PySide6.QtCore import QObject, Slot, Signal, QThread, Property
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtQml import QQmlApplicationEngine, QmlElement
 from PySide6.QtQuickControls2 import QQuickStyle
 import PySide6.QtAsyncio as QtAsyncio
-from qt_async_threads import QtAsyncRunner
 
 import synth_moth_chat_rc
 
