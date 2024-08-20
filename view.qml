@@ -224,7 +224,7 @@ ApplicationWindow {
 
         function onNewChatMessage(msgF) {
             var tmpArr = msgF.split(":")
-            var user = "<font color=\"" + colorNick + "\"><b>" + tmpArr[0] + "</b>" + colEnd
+            var user = tmpArr[0]
             var msg = "<font color=\"" + colorMsg +"\">"
             for (var i = 1; i < tmpArr.length; i++){
                 msg = msg + ":" + tmpArr[i]
