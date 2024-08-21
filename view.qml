@@ -9,19 +9,21 @@ import QtQuick.Window 2.1
 import QtQuick.Controls.Material 2.1
 import QtQml
 
+import "qmlComponents"
+
 import io.qt.textproperties 1.0
 
 ApplicationWindow {
     id: page
-    width: 800
+    width: 900
     height: 800
     visible: true
     Material.theme: Material.Dark
     Material.accent: Material.Red
     title: "SynthMoth"
-    property string colorNick: "#FFFFFF"
     property string colorMsg: "#FFFFFF"
     property string colEnd: "</font>"
+    property int counter: 0
 
     Bridge {
         id: bridge
@@ -34,7 +36,7 @@ ApplicationWindow {
         columns: 2
         Item{
             Layout.alignment: Qt.AlignLeft
-            width: 400
+            width: 500
             height: 800
             Timer {
                 id: timerchat
@@ -45,7 +47,7 @@ ApplicationWindow {
                 id: flick
                 anchors.fill:parent
                 clip: true
-                contentHeight: leftlabel.contentHeight
+                contentHeight: chatView.contentHeight
                 contentY : contentHeight-height
                 ScrollBar.vertical: ScrollBar {
                     parent: flick.parent
@@ -61,17 +63,49 @@ ApplicationWindow {
                     to: 0
                     duration: 2000
                 }
-                Text {
-                    id: leftlabel
-                    horizontalAlignment: Text.AlignLeft
-                    font.pointSize: 16
-                    wrapMode: Text.WordWrap
-                    textFormat: Text.StyledText
-                    text: ""
-                    font.family: "Papyrus"
-                    font.italic: true
-                    width: 400
-                    Material.accent: Material.Green
+                ListModel {
+                    id: chatList
+                }
+
+                Component {
+                    id: chatDelegate
+                    Row{
+                        Rectangle {
+                            height: chatMsg.contentHeight
+                            width: 500
+                            color: "transparent"
+                            Text {
+                                id: chatNick
+                                horizontalAlignment: Text.AlignLeft
+                                font.pointSize: 16
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.StyledText
+                                text: nick
+                                font.family: "Papyrus"
+                                font.italic: true
+                                Material.accent: Material.Green
+                            }
+                            Text {
+                                id: chatMsg
+                                horizontalAlignment: Text.AlignLeft
+                                font.pointSize: 16
+                                wrapMode: Text.WordWrap
+                                textFormat: Text.StyledText
+                                text: msg
+                                font.family: "Papyrus"
+                                font.italic: true
+                                Material.accent: Material.Green
+                                color: colorMsg
+                            }
+                        }
+                    }
+                }
+
+                ListView {
+                    id: chatView
+                    anchors.fill: parent
+                    model: chatList
+                    delegate: chatDelegate
                 }
             }
         }
@@ -132,7 +166,7 @@ ApplicationWindow {
                     id: slider
                     value: 0.5
                     onValueChanged: {
-                        leftlabel.font.pointSize = bridge.getSize(value)
+                        //leftlabel.font.pointSize = bridge.getSize(value)
                     }
                 }
             }
@@ -152,9 +186,7 @@ ApplicationWindow {
                     id: sred
                     value: 0.5
                     onValueChanged: {
-                        var colors = (bridge.getTextColor(sredlabel.text, value, colorMsg)).split("|")
-                        colorMsg = colors[0]
-                        colorNick = colors[1]
+                        colorMsg = bridge.getTextColor(sredlabel.text, value, colorMsg)
                     }
                 }
             }
@@ -174,9 +206,7 @@ ApplicationWindow {
                     id: sgreen
                     value: 0.5
                     onValueChanged: {
-                        var colors = bridge.getTextColor(sgreenlabel.text, value, colorMsg).split("|")
-                        colorMsg = colors[0]
-                        colorNick = colors[1]
+                        colorMsg = bridge.getTextColor(sgreenlabel.text, value, colorMsg)
                     }
                 }
             }
@@ -196,9 +226,7 @@ ApplicationWindow {
                     id: sblue
                     value: 0.5
                     onValueChanged: {
-                        var colors = bridge.getTextColor(sbluelabel.text, value, colorMsg).split("|")
-                        colorMsg = colors[0]
-                        colorNick = colors[1]
+                        colorMsg = bridge.getTextColor(sbluelabel.text, value, colorMsg)
                     }
                 }
             }
@@ -207,12 +235,22 @@ ApplicationWindow {
 
                 Button {
                     id: visiblechat
-                    text: flick.opacity == 1 ? "Hide" : "Show"
+                    text: flick.opacity === 1 ? "Hide" : "Show"
                     highlighted: true
                     Material.accent: Material.BlueGrey
                     onClicked: {
                         opacityAnimation.stop()
-                        flick.opacity = flick.opacity == 1 ? 0 : 1
+                        flick.opacity = flick.opacity === 1 ? 0 : 1
+                    }
+                }
+                Button {
+                    id: test
+                    text: "Test"
+                    highlighted: true
+                    Material.accent: Material.BlueGrey
+                    onClicked: {
+                        chatList.append({"nick": "huesos", "msg": "‎‎‎   ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ya hochu pizzu " + page.counter})
+                        page.counter += 1
                     }
                 }
             }
@@ -225,14 +263,20 @@ ApplicationWindow {
         function onNewChatMessage(msgF) {
             var tmpArr = msgF.split(":")
             var user = tmpArr[0]
-            var msg = "<font color=\"" + colorMsg +"\">"
+            console.log(user.length)
+            var userLen = user.length - 36
+            var msg = "<font>"
+            for (var i = 0; i < userLen*2; i++){
+                msg = msg + "‎‎‎ "
+            }
             for (var i = 1; i < tmpArr.length; i++){
-                msg = msg + ":" + tmpArr[i]
+                msg = msg + ": " + tmpArr[i]
             }
             msg = msg + colEnd
+            chatList.append({"nick": user, "msg": msg})
             flick.opacity = 1
             opacityAnimation.stop()
-            leftlabel.text = leftlabel.text + user + msg + "<br>"
+            //leftlabel.text = leftlabel.text + user + msg + "<br>"
             timerchat.restart()
         }
     }

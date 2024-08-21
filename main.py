@@ -16,24 +16,6 @@ from bridge import chat
 QML_IMPORT_NAME = "io.qt.textproperties"
 QML_IMPORT_MAJOR_VERSION = 1
 
-def intToHexStr(num):
-    return ("" + hex(num)[2:]).zfill(2)
-
-def colorAmplification(pos, newColor, oldColor, coef):
-    newColorIntensity = int(newColor*coef)
-    if pos.lower() == "sred":
-        col1 = int(int(oldColor[3:5], 16)*coef)
-        col2 = int(int(oldColor[5:], 16)*coef)
-        return oldColor[0]+intToHexStr(newColorIntensity)+intToHexStr(col1)+intToHexStr(col2)
-    elif pos.lower() == "sgreen":
-        col1 = int(int(oldColor[1:3], 16)*coef)
-        col2 = int(int(oldColor[5:], 16)*coef)
-        return oldColor[0]+intToHexStr(col1)+intToHexStr(newColorIntensity)+intToHexStr(col2)
-    elif pos.lower() == "sblue":
-        col1 = int(int(oldColor[1:3], 16)*coef)
-        col2 = int(int(oldColor[3:5], 16)*coef)
-        return oldColor[0]+intToHexStr(col1)+intToHexStr(col2)+intToHexStr(newColorIntensity)
-
 @QmlElement
 class Bridge(QObject):
     def __init__(self, parent=None):
@@ -43,13 +25,12 @@ class Bridge(QObject):
     def getTextColor(self, s, v, c):
         colorIntensity = int(v * 255)
         colorIntensityHex = "" + hex(colorIntensity)[2:]
-        colorIntensityUser = colorAmplification(s, colorIntensity, c, 0.7)
         if s.lower() == "sred":
-            return c[0]+colorIntensityHex.zfill(2)+c[3:]+"|"+colorIntensityUser
+            return c[0]+colorIntensityHex.zfill(2)+c[3:]
         elif s.lower() == "sgreen":
-            return c[0:3]+colorIntensityHex.zfill(2)+c[5:]+"|"+colorIntensityUser
+            return c[0:3]+colorIntensityHex.zfill(2)+c[5:]
         elif s.lower() == "sblue":
-            return c[0:5]+colorIntensityHex.zfill(2)+"|"+colorIntensityUser
+            return c[0:5]+colorIntensityHex.zfill(2)
 
     @Slot(str, result=str)
     def getColor(self, s):

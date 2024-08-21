@@ -68,7 +68,8 @@ class chatBotTwitch:
         global chat
         msgText = msg.text
         msgText = strip_tags(msgText)
-        chat.newChatMessage.emit(f'<font color="{msg.user.color}"><b> {msg.user.name}</b></font>: {msgText}')
+        msgColor = msg.user.color if msg.user.color != None and msg.user.color != "None" else "#000000"
+        chat.newChatMessage.emit(f'<font color="{msgColor}"><b>{msg.user.name}</b></font>: {msgText}')
         print(f'in {msg.room.name}, {msg.user.name} color: {msg.user.color} said: {msg.text}')
 
 
