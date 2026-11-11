@@ -1,22 +1,44 @@
+
+from PySide6.QtCore import QObject, Slot, Signal
+
+import threading
+
+import sys
 import asyncio
 import datetime
-from dotenv import dotenv_values
-from dotenv import load_dotenv
 import json
 import os
-from PySide6.QtCore import QObject, Slot, Signal, Property
 import random
 import re
 import requests
-import threading
-from twitchAPI.helper import first
+from html.parser import HTMLParser
+from io import StringIO
+from PySide6.QtCore import QObject, Signal, Slot, QUrl, Property
+from PySide6.QtWidgets import QApplication
+
 from twitchAPI.twitch import Twitch
 from twitchAPI.oauth import UserAuthenticator
-from twitchAPI.type import AuthScope, ChatEvent
-from twitchAPI.chat import Chat, EventData, ChatMessage, ChatSub, ChatCommand
-from bridge import chat
-from io import StringIO
-from html.parser import HTMLParser
+from twitchAPI.chat import Chat, ChatEvent, EventData, ChatSub, ChatCommand, ChatMessage
+from twitchAPI.type import AuthScope
+from twitchAPI.helper import first
+
+_loop = None
+_loop_thread = None
+
+def ensure_async_loop():
+    global _loop, _loop_thread
+    if _loop is not None:
+        return _loop
+
+    _loop = asyncio.new_event_loop()
+
+    def run_loop():
+        asyncio.set_event_loop(_loop)
+        _loop.run_forever()
+
+    _loop_thread = threading.Thread(target=run_loop, name="TwitchAsyncLoop", daemon=True)
+    _loop_thread.start()
+    return _loop
 
 class MLStripper(HTMLParser):
     def __init__(self):
@@ -35,52 +57,188 @@ def strip_tags(html):
     s.feed(html)
     return s.get_data()
 
-_loop = asyncio.new_event_loop()
+class TwitchChatBot(QObject):
+    banUser = Signal(str, int)           # user: str, duration_seconds: int
+    botStatusChanged = Signal(bool)      # true = запущен, false = остановлен
+    messageReceived = Signal(str, str, str) # username, message, user_color
 
-_thr = threading.Thread(target=_loop.run_forever, name="Async Runner",
-                        daemon=True)
+    def __init__(self, app_id: str, app_secret: str, target_channel: str):
+        super().__init__()
+        self.APP_ID = app_id
+        self.APP_SECRET = app_secret
+        self.TARGET_CHANNEL = target_channel.lower()
 
-_turnOff = 0
+        self.USER_SCOPE = [
+            AuthScope.CHAT_READ,
+            AuthScope.CHAT_EDIT,
+            AuthScope.MODERATOR_MANAGE_SHOUTOUTS,
+            AuthScope.MODERATOR_MANAGE_BANNED_USERS,
+            AuthScope.CHANNEL_MODERATE,
+        ]
 
-class chatBotTwitch:
-    def __init__(self):
-        dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
-        if os.path.exists(dotenv_path):
-            load_dotenv(dotenv_path)
-        self.config = dotenv_values(".env")
-        self.isWorking = 0
-        self.APP_ID = self.config['CLIENT_ID']
-        self.APP_SECRET = self.config['SECRET']
-        self.USER_SCOPE = [AuthScope.CHAT_READ, AuthScope.CHAT_EDIT, AuthScope.MODERATOR_MANAGE_SHOUTOUTS]
-        self.TARGET_CHANNEL = self.config['TARGET_CHANNEL']
-        self.START_TIME = datetime.datetime.now()
+        self.twitch: Twitch | None = None
+        self.chat: Chat | None = None
+        self._isWorking = False
+        self.START_TIME: datetime.datetime | None = None
 
+        ensure_async_loop()
+        # Подключаем сигнал бана
+        self.banUser.connect(self.on_ban)
+
+    # ====================== Свойство для QML ======================
+    @Property(bool, notify=botStatusChanged)
+    def isWorking(self):
+        return self._isWorking
+
+    def _set_working(self, value: bool):
+        if self._isWorking != value:
+            self._isWorking = value
+            self.botStatusChanged.emit(value)
+    
+    # ====================== Слоты для вызова из QML ======================
+    @Slot()
+    def startBot(self):
+        """Вызывается из QML кнопкой "Запустить бота" """
+        if self._isWorking:
+            print("Бот уже запущен")
+            return
+
+        loop = ensure_async_loop()
+        asyncio.run_coroutine_threadsafe(self._start_bot_internal(), loop)
+
+    @Slot()
+    def stopBot(self):
+        """Вызывается из QML кнопкой "Остановить бота" """
+        if not self._isWorking:
+            print("Бот уже остановлен")
+            return
+        
+        loop = ensure_async_loop()
+        asyncio.run_coroutine_threadsafe(self._stop_bot_internal(), loop)
+
+    # ====================== Бан из GUI ======================
+    @Slot(str, int)
+    def on_ban(self, user: str, duration: int):
+        user = strip_tags(user).strip()
+        if not user or not self._isWorking or not self.twitch:
+            return
+
+        async def do_ban():
+            try:
+                # Получаем ID пользователя, которого баним
+                user_to_ban = await first(self.twitch.get_users(logins=[user]))
+                if not user_to_ban:
+                    print(f"Пользователь {user} не найден")
+                    return
+
+                # Получаем ID канала (broadcaster)
+                broadcaster = await first(self.twitch.get_users(logins=[self.TARGET_CHANNEL]))
+                
+                # Получаем ID модератора (бота)
+                moderator = await first(self.twitch.get_users())   # текущий авторизованный пользователь
+
+                if duration > 0:
+                    # Таймаут
+                    await self.twitch.ban_user(
+                        broadcaster_id=broadcaster.id,
+                        moderator_id=moderator.id,
+                        user_id=user_to_ban.id,
+                        duration=duration,
+                        reason="Banned from SynthMoth"
+                    )
+                    print(f"✅ Таймаут {user} на {duration} сек")
+                else:
+                    # Перманентный бан
+                    await self.twitch.ban_user(
+                        broadcaster_id=broadcaster.id,
+                        moderator_id=moderator.id,
+                        user_id=user_to_ban.id,
+                        reason="Banned from SynthMoth"
+                    )
+                    print(f"✅ Бан {user} выполнен")
+
+            except Exception as e:
+                print(f"❌ Ошибка бана {user}: {e}")
+                self.botError.emit(str(e))
+
+        loop = ensure_async_loop()
+        asyncio.run_coroutine_threadsafe(do_ban(), loop)
+
+    # ====================== Внутренний запуск ======================
+    async def _start_bot_internal(self):
+        try:
+            print("Запуск Twitch чат-бота...")
+
+            self.twitch = await Twitch(self.APP_ID, self.APP_SECRET)
+
+            auth = UserAuthenticator(self.twitch, self.USER_SCOPE)
+            token, refresh_token = await auth.authenticate()
+            await self.twitch.set_user_authentication(token, self.USER_SCOPE, refresh_token)
+
+            self.chat = await Chat(self.twitch)
+
+            # Регистрация событий
+            self.chat.register_event(ChatEvent.READY, self.on_ready)
+            self.chat.register_event(ChatEvent.MESSAGE, self.on_message)
+            self.chat.register_event(ChatEvent.SUB, self.on_sub)
+            self.chat.register_event(ChatEvent.RAID, self.on_raid)
+
+            # Пример регистрации команд (добавь свои)
+            self.chat.register_command('reply', self.test_command)
+            self.chat.register_command('roll', self.roll_command)
+            self.chat.register_command('discord', self.ds_command)
+            self.chat.register_command('uptime', self.uptime_command)
+
+            self.START_TIME = datetime.datetime.now()
+            self._set_working(True)
+
+            print(f"✅ Бот запущен и присоединяется к каналу #{self.TARGET_CHANNEL}")
+
+            # chat.start() блокирует — запускаем в отдельном потоке
+            await asyncio.to_thread(self.chat.start)
+        except Exception as e:
+            error_msg = f"Критическая ошибка запуска бота: {e}"
+            print(f"❌ {error_msg}")
+            self.botError.emit(error_msg)
+            await self._stop_bot_internal()
+
+    async def _stop_bot_internal(self):
+        print("Остановка бота...")
+        try:
+            if self.chat:
+                self.chat.stop()
+            if self.twitch:
+                await self.twitch.close()
+        except Exception as e:
+            print(f"Ошибка при остановке: {e}")
+        finally:
+            self.chat = None
+            self.twitch = None
+            self.START_TIME = None
+            self._set_working(False)
+            print("✅ Бот остановлен")
+
+    # ====================== Обработчики событий ======================
     async def on_ready(self, ready_event: EventData):
-        print('Bot is ready for work, joining channels')
-        # join our target channel, if you want to join multiple, either call join for each individually
-        # or even better pass a list of channels as the argument
+        print(f"Бот готов → присоединяемся к #{self.TARGET_CHANNEL}")
         await ready_event.chat.join_room(self.TARGET_CHANNEL)
-        # you can do other bot initialization things in here
-
 
     # this will be called whenever a message in a channel was send by either the bot OR another user
-    async def on_message(self, msg: ChatMessage):
-        global chat
+    async def on_message(self, msg: EventData):
+        print(f"{msg}")
+        print(f"{msg.user.name}: {msg.text}")
+        # Здесь можно эмитировать сигналы в QML, если нужно показывать сообщенияglobal chat
         msgText = msg.text
         msgText = strip_tags(msgText)
-        msgColor = msg.user.color if msg.user.color != None and msg.user.color != "None" else "#000000"
-        chat.newChatMessage.emit(f'<font color="{msgColor}"><b>{msg.user.name}</b></font>: {msgText}')
+        msgColor = msg.user.color if msg.user.color != None and msg.user.color != "None" else "#FFFFFF"
+        self.messageReceived.emit(f'<font color="{msgColor}"><b>{strip_tags(msg.user.name)}</b></font>', msgText, msgColor)
         print(f'in {msg.room.name}, {msg.user.name} color: {msg.user.color} said: {msg.text}')
 
+    async def on_sub(self, sub_event: ChatSub):
+        print(f"Подписка от {sub_event.user.name}")
 
-    # this will be called whenever someone subscribes to a channel
-    async def on_sub(self, sub: ChatSub):
-        print(f'New subscription in {sub.room.name}:\\n'
-              f'  Type: {sub.sub_plan}\\n'
-              f'  Message: {sub.sub_message}')
-
-    # this will be called whenever someone raids your channel
     async def on_raid(self, d: dict):
+        #print(f"Рейд от {raid_event.user.name} ({raid_event.viewer_count} зрителей)")
         await self.chat.twitch.send_a_shoutout(d["tags"]["room-id"], d["tags"]["user-id"], d["tags"]["room-id"])
 
     # this will be called whenever the !reply command is issued
@@ -126,83 +284,3 @@ class chatBotTwitch:
 
     async def uptime_command(self, cmd: ChatCommand):
         await cmd.reply(str(datetime.datetime.now() - self.START_TIME))
-
-    # this is where we set up the bot and start it
-    async def run_bot(self):
-        if self.isWorking == 1:
-            return
-
-        self.isWorking = 1
-
-        # set up twitch api instance and add user authentication with some scopes
-        self.twitch = await Twitch(self.APP_ID, self.APP_SECRET)
-        auth = UserAuthenticator(self.twitch, self.USER_SCOPE)
-        token, refresh_token = await auth.authenticate()
-        await self.twitch.set_user_authentication(token, self.USER_SCOPE, refresh_token)
-        # create chat instance
-        self.chat = await Chat(self.twitch)
-
-        # register the handlers for the events you want
-        
-        # listen to when the bot is done starting up and ready to join channels
-        self.chat.register_event(ChatEvent.READY, self.on_ready)
-        # listen to chat messages
-        self.chat.register_event(ChatEvent.MESSAGE, self.on_message)
-        # listen to channel subscriptions
-        self.chat.register_event(ChatEvent.SUB, self.on_sub)
-        #listen to raids
-        self.chat.register_event(ChatEvent.RAID, self.on_raid)
-        # there are more events, you can view them all in this documentation
-
-        # you can directly register commands and their handlers
-        self.chat.register_command('reply', self.test_command)
-        self.chat.register_command('roll', self.roll_command)
-        self.chat.register_command('discord', self.ds_command)
-        self.chat.register_command('uptime', self.uptime_command)
-
-        print("start")
-        # we are done with our setup, lets start this bot up!
-        self.chat.start()
-
-    # this is where we stop the bot
-    async def stop_bot(self):
-        if self.isWorking == 0:
-            return
-            # now we can close the chat bot and the twitch api client
-        self.isWorking = 0
-        self.chat.stop()
-        await self.twitch.close()
-
-def turn_on():
-    global _turnOff
-    _turnOff = 1
-
-def turn_off():
-    global _turnOff
-    _turnOff = -1
-
-async def run():
-    global _turnOff
-    twitch_chat_bot = chatBotTwitch()
-    while True:
-        #print("test")
-        if _turnOff == 1:
-            await twitch_chat_bot.run_bot()
-            print("turned_on")
-            _turnOff = 0
-        elif _turnOff == -1:
-            await twitch_chat_bot.stop_bot()
-            print("turned_off")
-            _turnOff = 0
-
-def main_bot_thread():
-    if not _thr.is_alive():
-        _thr.start()
-        asyncio.run_coroutine_threadsafe(run(), _loop)
-
-#run_task = asyncio.create_task(run_bot())
-
-
-# lets run our setup
-if __name__ == "__main__":
-    asyncio.run(run())

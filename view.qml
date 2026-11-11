@@ -9,7 +9,7 @@ import QtQuick.Window 2.1
 import QtQuick.Controls.Material 2.1
 import QtQml
 
-import "qmlComponents"
+import "qrc:/qmlComponents" as Components
 
 import io.qt.textproperties 1.0
 
@@ -22,11 +22,14 @@ ApplicationWindow {
     Material.accent: Material.Red
     title: "SynthMoth"
     property string colorMsg: "#FFFFFF"
-    property string colEnd: "</font>"
     property int counter: 0
 
     Bridge {
         id: bridge
+    }
+
+    Components.ChatContextMenu {
+        id: chatMenu
     }
 
     property QtObject chat
@@ -38,74 +41,113 @@ ApplicationWindow {
             Layout.alignment: Qt.AlignLeft
             width: 500
             height: 800
+
+            Rectangle {
+                id: chatBackground
+                anchors.fill: parent
+                radius: 14
+                opacity: chatView.opacity
+                
+                // Тёмный полупрозрачный фон
+                color: "#B30D0D12"                    // чуть с синевой, выглядит дороже
+                
+                border.color: "#33FFFFFF"
+                border.width: 1
+
+                // Очень лёгкий внутренний градиент (опционально)
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#C9101018" }
+                    GradientStop { position: 1.0; color: "#A00A0A10" }
+                }
+            }
+
             Timer {
                 id: timerchat
                 interval: 4000
                 onTriggered: opacityAnimation.start()
             }
-            Flickable{
-                id: flick
-                anchors.fill:parent
+
+            ListView {
+                id: chatView
+                anchors.fill: parent
+                model: chatList
+                delegate: chatDelegate
                 clip: true
+                spacing: 4
                 contentHeight: chatView.contentHeight
-                contentY : contentHeight-height
+
                 ScrollBar.vertical: ScrollBar {
-                    parent: flick.parent
-                    anchors.top: flick.top
-                    anchors.left: flick.right
-                    anchors.bottom: flick.bottom
+                    parent: chatView.parent
+                    anchors.top: chatView.top
+                    anchors.left: chatView.right
+                    anchors.bottom: chatView.bottom
                     Material.accent: Material.BlueGrey
                 }
-                NumberAnimation {
-                    id: opacityAnimation
-                    target: flick
-                    property: "opacity"
-                    to: 0
-                    duration: 2000
+            
+                onCountChanged: {
+                    if (count > 0) {
+                        Qt.callLater(function() {
+                            positionViewAtEnd()
+                        })
+                    }
                 }
-                ListModel {
-                    id: chatList
-                }
+            }
+            NumberAnimation {
+                id: opacityAnimation
+                target: chatView
+                property: "opacity"
+                to: 0
+                duration: 2000
+            }
 
-                Component {
-                    id: chatDelegate
-                    Row{
-                        Rectangle {
-                            height: chatMsg.contentHeight
-                            width: 500
-                            color: "transparent"
-                            Text {
-                                id: chatNick
-                                horizontalAlignment: Text.AlignLeft
-                                font.pointSize: 16
-                                wrapMode: Text.WordWrap
-                                textFormat: Text.StyledText
-                                text: nick
-                                font.family: "Papyrus"
-                                font.italic: true
-                                Material.accent: Material.Green
-                            }
-                            Text {
-                                id: chatMsg
-                                horizontalAlignment: Text.AlignLeft
-                                font.pointSize: 16
-                                wrapMode: Text.WordWrap
-                                textFormat: Text.StyledText
-                                text: msg
-                                font.family: "Papyrus"
-                                font.italic: true
-                                Material.accent: Material.Green
-                                color: colorMsg
+            ListModel {
+                id: chatList
+            }
+
+            Component {
+                id: chatDelegate
+                Item {
+                    width: chatView.width
+                    height: chatMsg.implicitHeight + 8
+
+                    property string nick: model.nick
+
+                    Rectangle { // фон при наведении
+                        anchors.fill: parent
+                        color: mouseArea.containsMouse ? "#22ffffff" : "transparent"
+                        radius: 4
+                    }
+
+                    Text {
+                        id: chatMsg
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        leftPadding: 8
+                        rightPadding: 8
+                        text: model.msg
+                        textFormat: Text.StyledText
+                        wrapMode: Text.WordWrap
+                        font.pointSize: 15
+                        font.family: "Papyrus"
+                        font.italic: true
+                        color: colorMsg
+                    }
+
+                    MouseArea {
+                        id: mouseArea
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+
+                        onClicked: (mouse) => {
+                            if (mouse.button === Qt.RightButton || mouse.button === Qt.LeftButton) {
+                                chatMenu.user = nick
+                                chatMenu.popup()
                             }
                         }
                     }
-                }
-
-                ListView {
-                    id: chatView
-                    anchors.fill: parent
-                    model: chatList
-                    delegate: chatDelegate
                 }
             }
         }
@@ -136,8 +178,9 @@ ApplicationWindow {
                     text: "Turn On"
                     highlighted: true
                     Material.accent: Material.Green
+                    enabled: !twitchBot.isWorking
                     onClicked: {
-                        bridge.turnOn()
+                        twitchBot.startBot()
                     }
                 }
                 Button {
@@ -145,8 +188,9 @@ ApplicationWindow {
                     text: "Turn Off"
                     highlighted: true
                     Material.accent: Material.Red
+                    enabled: twitchBot.isWorking
                     onClicked: {
-                        bridge.turnOff()
+                        twitchBot.stopBot()
                     }
                 }
             }
@@ -235,12 +279,12 @@ ApplicationWindow {
 
                 Button {
                     id: visiblechat
-                    text: flick.opacity === 1 ? "Hide" : "Show"
+                    text: chatView.opacity === 1 ? "Hide" : "Show"
                     highlighted: true
                     Material.accent: Material.BlueGrey
                     onClicked: {
                         opacityAnimation.stop()
-                        flick.opacity = flick.opacity === 1 ? 0 : 1
+                        chatView.opacity = chatView.opacity === 1 ? 0 : 1
                     }
                 }
                 Button {
@@ -249,7 +293,7 @@ ApplicationWindow {
                     highlighted: true
                     Material.accent: Material.BlueGrey
                     onClicked: {
-                        chatList.append({"nick": "huesos", "msg": "‎‎‎   ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ‎ ya hochu pizzu " + page.counter})
+                        chatList.append({"nick": "huesos", "msg": "huesos: ya hochu pizzu" + chatView.count})
                         page.counter += 1
                     }
                 }
@@ -258,25 +302,15 @@ ApplicationWindow {
     }
 
     Connections {
-        target: chat
+        target: twitchBot
 
-        function onNewChatMessage(msgF) {
-            var tmpArr = msgF.split(":")
-            var user = tmpArr[0]
-            console.log(user.length)
-            var userLen = user.length - 36
-            var msg = "<font>"
-            for (var i = 0; i < userLen*2; i++){
-                msg = msg + "‎‎‎ "
-            }
-            for (var i = 1; i < tmpArr.length; i++){
-                msg = msg + ": " + tmpArr[i]
-            }
-            msg = msg + colEnd
-            chatList.append({"nick": user, "msg": msg})
-            flick.opacity = 1
+        function onMessageReceived(user_name, message, user_color) {
+            console.log(user_name.length)
+            var userLen = user_name.length - 36
+            var msg = "<font color=\"" + user_color + "\"><b>" + user_name + "</b></font><font>:" + message + "</font>"
+            chatList.append({"nick": user_name, "msg": msg})
+            chatView.opacity = 1
             opacityAnimation.stop()
-            //leftlabel.text = leftlabel.text + user + msg + "<br>"
             timerchat.restart()
         }
     }

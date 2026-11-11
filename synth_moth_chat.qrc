@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/">
         <file>qtquickcontrols2.conf</file>
-        <file>qmlComponents/msgRow.qml</file>
+        <file>view.qml</file>
+        <file>qmlComponents/ChatContextMenu.qml</file>
     </qresource>
 </RCC>

@@ -1,17 +1,19 @@
 import asyncio
 import sys
+import os
 from pathlib import Path
+from dotenv import dotenv_values
+from dotenv import load_dotenv
 
-from PySide6.QtCore import QObject, Slot, Signal, QThread, Property
+from PySide6.QtCore import QObject, Slot, Signal, QThread, Property, QUrl
 from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import QApplication
 from PySide6.QtQml import QQmlApplicationEngine, QmlElement
 from PySide6.QtQuickControls2 import QQuickStyle
-import PySide6.QtAsyncio as QtAsyncio
 
 import synth_moth_chat_rc
 
-from synth_moth import turn_off, turn_on, main_bot_thread
-from bridge import chat
+from synth_moth import TwitchChatBot
 
 QML_IMPORT_NAME = "io.qt.textproperties"
 QML_IMPORT_MAJOR_VERSION = 1
@@ -51,31 +53,44 @@ class Bridge(QObject):
         else:
             return size
 
-    @Slot()
-    def turnOn(self):
-        turn_on()
+os.environ["QT_QPA_PLATFORM"] = "windows"
 
-
-    @Slot()
-    def turnOff(self):
-        turn_off()
-
-#async def main():
-#asyncio.ensure_future(
-
-        
-if __name__ == "__main__":
-    app = QGuiApplication(sys.argv)
+def main():
+    app = QApplication(sys.argv)
     QQuickStyle.setStyle("Material")
+
     engine = QQmlApplicationEngine()
-    print("start")
-    qml_file = Path(__file__).parent / 'view.qml'
-    engine.load(qml_file)
-    main_bot_thread()
-        
+
+    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    
+    if os.path.exists(dotenv_path):
+        load_dotenv(dotenv_path)
+    
+    config = dotenv_values(".env")
+
+    bot = TwitchChatBot(
+        app_id=config['CLIENT_ID'],
+        app_secret=config['SECRET'],
+        target_channel=config['TARGET_CHANNEL'] 
+    )
+
+    engine.rootContext().setContextProperty("twitchBot", bot)
+
+    qml_file = 'qrc:/view.qml'
+    engine.load(QUrl(qml_file))   # или qrc:/view.qml
+
     if not engine.rootObjects():
+        print("Ошибка загрузки QML")
         sys.exit(-1)
-        
-    engine.rootObjects()[0].setProperty('chat', chat)
-    app.exec()	
-#    QtAsyncio.run()
+
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    # Этот способ самый надёжный с QtAsyncio
+    try:
+        main()
+    except Exception as e:
+        print(f"Критическая ошибка: {e}")
+    finally:
+        # Принудительная очистка (на всякий случай)
+        QApplication.quit()
